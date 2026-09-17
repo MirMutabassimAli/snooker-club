@@ -1,4 +1,4 @@
-export type ViewId = "operations" | "sessions" | "players" | "billing" | "reports" | "admin";
+export type ViewId = "dashboard" | "tables" | "egames" | "canteen" | "billing" | "reports" | "admin";
 export type SessionKind = "snooker" | "egame";
 export type TableState = "available" | "occupied" | "maintenance";
 
@@ -33,6 +33,9 @@ export type Player = {
 export type Bill = {
   id: string;
   player: string;
+  tableId?: string;
+  phone?: string;
+  address?: string;
   itemCount: number;
   updated: string;
   total: number;
@@ -64,8 +67,8 @@ export const players: Player[] = [
 ];
 
 export const initialBills: Bill[] = [
-  { id: "SC-1048", player: "Ahmed Khan", itemCount: 3, updated: "Just now", total: 2150, status: "unpaid" },
-  { id: "SC-1049", player: "Bilal Raza", itemCount: 2, updated: "4 min ago", total: 1700, status: "unpaid" },
+  { id: "SC-1048", player: "Ahmed Khan", tableId: "03", itemCount: 3, updated: "Just now", total: 2150, status: "unpaid" },
+  { id: "SC-1049", player: "Bilal Raza", tableId: "02", itemCount: 2, updated: "4 min ago", total: 1700, status: "unpaid" },
   { id: "SC-1050", player: "Hamza Ali", itemCount: 1, updated: "18 min ago", total: 800, status: "unpaid" },
   { id: "SC-1051", player: "Usman Tariq", itemCount: 4, updated: "22 min ago", total: 3350, status: "unpaid" },
 ];
@@ -78,9 +81,10 @@ export const menuItems = [
 ];
 
 export const navItems: Array<{ id: ViewId; label: string }> = [
-  { id: "operations", label: "Operations" },
-  { id: "sessions", label: "Sessions" },
-  { id: "players", label: "Players" },
-  { id: "billing", label: "Billing" },
+  { id: "dashboard", label: "Dashboard" },
+  { id: "tables", label: "Tables" },
+  { id: "egames", label: "E-games" },
+  { id: "canteen", label: "Canteen" },
+  { id: "billing", label: "Pay Later" },
   { id: "reports", label: "Reports" },
 ];

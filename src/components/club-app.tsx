@@ -6,84 +6,97 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  Cookie,
+  CupSoda,
+  Droplets,
   Gamepad2,
   LayoutGrid,
   Menu,
   Plus,
   ReceiptText,
-  Search,
+  Sandwich,
   Settings2,
   ShoppingBag,
   Users,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActionModal } from "@/components/action-modal";
 import { BrandMark } from "@/components/brand-mark";
 import { IntroOverlay } from "@/components/intro-overlay";
-import { MotionTable } from "@/components/motion-table";
 import {
   initialBills,
   initialSessions,
   initialTables,
   menuItems,
   navItems,
-  players as seedPlayers,
   type Bill,
   type ClubTable,
-  type Player,
   type Session,
   type SessionKind,
   type ViewId,
 } from "@/lib/demo-data";
-import { formatDuration, getTableSummary } from "@/lib/club-domain";
+import { formatDuration } from "@/lib/club-domain";
 
 const iconByView: Record<ViewId, typeof LayoutGrid> = {
-  operations: LayoutGrid,
-  sessions: Clock3,
-  players: Users,
+  dashboard: LayoutGrid,
+  tables: Clock3,
+  egames: Gamepad2,
+  canteen: ShoppingBag,
   billing: ReceiptText,
   reports: BarChart3,
   admin: Settings2,
 };
 
-type ModalId = "session" | "order" | "checkout" | "player" | null;
+type ModalId = "start" | "continue" | "pay-later" | "checkout" | "order" | null;
 type Toast = { id: number; title: string; detail: string };
+type GamePrice = { id: string; name: string; price: number };
 
 const money = (value: number) => `Rs ${value.toLocaleString("en-PK")}`;
+const defaultGamePrices: GamePrice[] = [
+  { id: "single", name: "Single", price: 500 },
+  { id: "double", name: "Double", price: 800 },
+  { id: "8-ball", name: "8-ball", price: 600 },
+  { id: "snooker", name: "Snooker", price: 700 },
+];
 
 const pageCopy: Record<ViewId, { eyebrow: string; title: string; description: string }> = {
-  operations: { eyebrow: "Desk console", title: "Good evening, Mir.", description: "The floor is moving. Three sessions are live." },
-  sessions: { eyebrow: "Live floor", title: "Active sessions", description: "Every running timer, in one place." },
-  players: { eyebrow: "Customer records", title: "Players", description: "One profile, every visit and activity." },
-  billing: { eyebrow: "Accounts", title: "Billing", description: "Open tabs, payments and checkout." },
-  reports: { eyebrow: "Business pulse", title: "Today at a glance", description: "Revenue, sessions and floor performance." },
-  admin: { eyebrow: "Administrator", title: "Club controls", description: "Pricing, inventory, people and system rules." },
+  dashboard: { eyebrow: "Home", title: "Dashboard", description: "Choose a table or game to get started." },
+  tables: { eyebrow: "Pool tables", title: "Tables", description: "Allot a free table or finish a running game." },
+  egames: { eyebrow: "Games", title: "E-games", description: "Start a game on a console or computer." },
+  canteen: { eyebrow: "Food and drinks", title: "Canteen", description: "Add a snack or drink to an open bill." },
+  billing: { eyebrow: "Payments", title: "Pay Later", description: "See customers who still need to pay." },
+  reports: { eyebrow: "Reports", title: "Today at a glance", description: "Check revenue and club activity for today." },
+  admin: { eyebrow: "Settings", title: "Club settings", description: "Manage tables, prices, menu items and staff." },
 };
 
 export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
   const reducedMotion = useReducedMotion();
-  const [view, setView] = useState<ViewId>("operations");
+  const [view, setView] = useState<ViewId>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [introVisible, setIntroVisible] = useState(!skipIntro);
   const [sessions, setSessions] = useState<Session[]>(initialSessions);
   const [tables, setTables] = useState<ClubTable[]>(initialTables);
-  const [players, setPlayers] = useState<Player[]>(seedPlayers);
   const [bills, setBills] = useState<Bill[]>(initialBills);
   const [modal, setModal] = useState<ModalId>(null);
   const [sessionMode, setSessionMode] = useState<SessionKind>("snooker");
-  const [sessionPlayer, setSessionPlayer] = useState(seedPlayers[0].name);
+  const [bookingName, setBookingName] = useState("Guest");
   const [selectedTable, setSelectedTable] = useState("01");
+  const [selectedResource, setSelectedResource] = useState("Console 01");
+  const [selectedTableForOrder, setSelectedTableForOrder] = useState("01");
   const [selectedGame, setSelectedGame] = useState("FIFA");
-  const [orderPlayer, setOrderPlayer] = useState(seedPlayers[0].name);
+  const [orderBill, setOrderBill] = useState(initialBills[0].id);
   const [orderItem, setOrderItem] = useState(menuItems[0].id);
   const [orderQty, setOrderQty] = useState(1);
   const [checkoutBill, setCheckoutBill] = useState(initialBills[0].id);
-  const [search, setSearch] = useState("");
   const [clock, setClock] = useState<Date | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [newPlayerPhone, setNewPlayerPhone] = useState("");
+  const [poolGame, setPoolGame] = useState("Snooker");
+  const [gamePrices, setGamePrices] = useState<GamePrice[]>(defaultGamePrices);
+  const [payLaterName, setPayLaterName] = useState("");
+  const [payLaterPhone, setPayLaterPhone] = useState("");
+  const [payLaterAddress, setPayLaterAddress] = useState("");
+  const [tableCount, setTableCount] = useState(initialTables.length);
 
   useEffect(() => {
     if (skipIntro || reducedMotion) return;
@@ -103,11 +116,9 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
     };
   }, []);
 
-  const tableSummary = useMemo(() => getTableSummary(tables), [tables]);
   const openBills = bills.filter((bill) => bill.status === "unpaid");
   const selectedMenuItem = menuItems.find((item) => item.id === orderItem) ?? menuItems[0];
   const selectedBill = bills.find((bill) => bill.id === checkoutBill) ?? bills[0];
-  const featuredSession = sessions.find((session) => session.resource === "Table 03") ?? sessions[0];
 
   function notify(title: string, detail: string) {
     const id = Date.now();
@@ -122,8 +133,9 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
 
   function openSession(kind: SessionKind, tableId?: string) {
     setSessionMode(kind);
-    if (tableId) setSelectedTable(tableId);
-    setModal("session");
+    if (kind === "snooker" && tableId) setSelectedTable(tableId);
+    if (kind === "egame" && tableId) setSelectedResource(tableId);
+    setModal("start");
   }
 
   function startSession() {
@@ -136,37 +148,90 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
         notify("No table available", "Choose another open table before starting.");
         return;
       }
+      const selectedPrice = gamePrices.find((game) => game.name === poolGame)?.price ?? 500;
       const nextSession: Session = {
         id,
-        player: sessionPlayer,
+        player: bookingName.trim() || "Guest",
         kind: "snooker",
-        activity: "Singles",
+        activity: poolGame,
         resource: `Table ${selectedTable}`,
         startedAt: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         elapsedSeconds: 0,
-        amount: 500,
+        amount: selectedPrice,
       };
       setSessions((current) => [...current, nextSession]);
-      setTables((current) => current.map((item) => item.id === selectedTable ? { ...item, status: "occupied", player: sessionPlayer, elapsed: "00:00" } : item));
-      notify("Session started", `${sessionPlayer} · Table ${selectedTable}`);
+      setTables((current) => current.map((item) => item.id === selectedTable ? { ...item, status: "occupied", player: bookingName.trim() || "Guest", elapsed: "00:00" } : item));
+      notify("Table booked", `${bookingName.trim() || "Guest"} · Table ${selectedTable}`);
     } else {
       const nextSession: Session = {
         id,
-        player: sessionPlayer,
+        player: bookingName.trim() || "Guest",
         kind: "egame",
         activity: selectedGame,
-        resource: "Console 01",
+        resource: selectedResource,
         startedAt: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         elapsedSeconds: 0,
         amount: 500,
       };
       setSessions((current) => [...current, nextSession]);
-      notify("Session started", `${sessionPlayer} · ${selectedGame}`);
+      notify("Game started", `${bookingName.trim() || "Guest"} · ${selectedGame}`);
     }
-    setModal(null);
+    setModal(modal === "continue" ? "continue" : null);
   }
 
-  function finishSession(id: string) {
+  function openContinue(tableId: string) {
+    setSelectedTableForOrder(tableId);
+    setOrderBill(bills.find((bill) => bill.tableId === tableId && bill.status === "unpaid")?.id ?? "");
+    setModal("continue");
+  }
+
+  function openContinueSession(resource: string) {
+    setSelectedTableForOrder(resource);
+    setOrderBill(bills.find((bill) => bill.tableId === resource && bill.status === "unpaid")?.id ?? "");
+    setModal("continue");
+  }
+
+  function tableSession(resource: string) {
+    return sessions.find((session) => session.resource === (resource.startsWith("Table ") || resource.startsWith("Console ") ? resource : `Table ${resource}`));
+  }
+
+  function tableBill(tableId: string) {
+    return bills.find((bill) => bill.tableId === tableId && bill.status === "unpaid");
+  }
+
+  function settleTable(payment: "now" | "later") {
+    const session = tableSession(selectedTableForOrder);
+    const bill = tableBill(selectedTableForOrder);
+    const total = (bill?.total ?? 0) + (session?.amount ?? 0);
+    if (payment === "later") {
+      setModal("pay-later");
+      return;
+    }
+    if (session) finishSession(session.id, bill?.id, total);
+    if (bill) setBills((current) => current.map((item) => item.id === bill.id ? { ...item, status: "paid", total, updated: "Paid now" } : item));
+    setModal(null);
+    notify("Paid now", `Table ${selectedTableForOrder} is ready for another game.`);
+  }
+
+  function savePayLater() {
+    const session = tableSession(selectedTableForOrder);
+    const bill = tableBill(selectedTableForOrder);
+    const name = payLaterName.trim();
+    if (!name || !payLaterPhone.trim()) {
+      notify("Name and phone required", "Add customer details before saving Pay Later.");
+      return;
+    }
+    const total = (bill?.total ?? 0) + (session?.amount ?? 0);
+    setBills((current) => [...current.filter((item) => item.id !== bill?.id), { id: bill?.id ?? `SC-${Date.now()}`, player: name, phone: payLaterPhone.trim(), address: payLaterAddress.trim() || undefined, tableId: selectedTableForOrder, itemCount: (bill?.itemCount ?? 0) + 1, updated: "Pay Later", total, status: "unpaid" }]);
+    if (session) finishSession(session.id, undefined, total, false);
+    setModal(null);
+    setPayLaterName("");
+    setPayLaterPhone("");
+    setPayLaterAddress("");
+    notify("Saved for Pay Later", `${name} · ${money(total)} added to the Bills panel.`);
+  }
+
+  function finishSession(id: string, existingBillId?: string, totalOverride?: number, addToBill = true) {
     const session = sessions.find((item) => item.id === id);
     if (!session) return;
 
@@ -175,44 +240,32 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
       const tableId = session.resource.replace("Table ", "");
       setTables((current) => current.map((item) => item.id === tableId ? { id: item.id, status: "available" } : item));
     }
-    setBills((current) => current.map((bill) => bill.player === session.player && bill.status === "unpaid" ? { ...bill, itemCount: bill.itemCount + 1, total: bill.total + session.amount, updated: "Just now" } : bill));
-    notify("Session finished", `${session.player} · ${money(session.amount)} added to bill`);
+    if (addToBill) {
+      setBills((current) => current.map((bill) => bill.id === existingBillId || (!existingBillId && bill.player === session.player && bill.status === "unpaid") ? { ...bill, itemCount: bill.itemCount + 1, total: totalOverride ?? bill.total + session.amount, updated: "Just now" } : bill));
+    }
+    if (!existingBillId && !addToBill) return;
+    if (!existingBillId) notify("Game finished", `${session.player} · ${money(session.amount)} added to bill`);
   }
 
   function addOrder() {
     const total = selectedMenuItem.price * orderQty;
-    setBills((current) => current.map((bill) => bill.player === orderPlayer && bill.status === "unpaid" ? { ...bill, itemCount: bill.itemCount + orderQty, total: bill.total + total, updated: "Just now" } : bill));
-    setModal(null);
-    notify("Order added", `${orderQty} × ${selectedMenuItem.name} · ${money(total)}`);
+    setBills((current) => {
+      if (orderBill) return current.map((bill) => bill.id === orderBill && bill.status === "unpaid" ? { ...bill, itemCount: bill.itemCount + orderQty, total: bill.total + total, updated: "Just now" } : bill);
+      const id = `SC-${Date.now()}`;
+      setOrderBill(id);
+      return [...current, { id, player: bookingName.trim() || "Guest", tableId: selectedTableForOrder, itemCount: orderQty, updated: "Just now", total, status: "unpaid" }];
+    });
+    setModal(modal === "continue" ? "continue" : null);
+    notify("Added to bill", `${orderQty} × ${selectedMenuItem.name} · ${money(total)}`);
   }
 
   function collectPayment() {
     if (!selectedBill) return;
+    const session = selectedBill.tableId ? tableSession(selectedBill.tableId) : undefined;
+    if (session) finishSession(session.id, selectedBill.id, selectedBill.total, false);
     setBills((current) => current.map((bill) => bill.id === selectedBill.id ? { ...bill, status: "paid", updated: "Paid now" } : bill));
     setModal(null);
     notify("Payment received", `Bill #${selectedBill.id} · ${money(selectedBill.total)}`);
-  }
-
-  function addPlayer() {
-    const name = newPlayerName.trim();
-    if (!name) {
-      notify("Name required", "Enter a player name to continue.");
-      return;
-    }
-    const player: Player = {
-      id: `p-${Date.now()}`,
-      name,
-      phone: newPlayerPhone.trim() || "No phone supplied",
-      visits: 1,
-      lastActivity: "Added now",
-      openBill: 0,
-      active: false,
-    };
-    setPlayers((current) => [player, ...current]);
-    setNewPlayerName("");
-    setNewPlayerPhone("");
-    setModal(null);
-    notify("Player created", `${name} is ready for a session.`);
   }
 
   function exportReport() {
@@ -242,7 +295,7 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
               <button key={item.id} className={`nav-button ${active ? "nav-button--active" : ""}`} onClick={() => navigate(item.id)}>
                 {active && <motion.i layoutId="active-nav" className="nav-active-bg" transition={{ type: "spring", stiffness: 420, damping: 35 }} />}
                 <Icon size={17}/><span>{item.label}</span>
-                {item.id === "sessions" && <small>{sessions.length}</small>}
+                {item.id === "tables" && <small>{sessions.length}</small>}
                 {item.id === "billing" && <small>{openBills.length}</small>}
               </button>
             );
@@ -262,13 +315,13 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
         <header className="topbar">
           <div className="topbar-left">
             <button className="mobile-menu" aria-label="Open navigation" onClick={() => setSidebarOpen((open) => !open)}><Menu size={18}/></button>
-            <span>Snooker Club</span><i>/</i><strong>{pageCopy[view].title.replace("Good evening, Mir.", "Operations")}</strong>
+            <span>Snooker Club</span><i>/</i><strong>{pageCopy[view].title}</strong>
           </div>
           <div className="topbar-actions">
             <time suppressHydrationWarning>{clock ? `${clock.toLocaleDateString("en-PK", { weekday: "short", day: "2-digit", month: "short" })} · ${clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "\u2014"}</time>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={16}/><i/></button>
-            <button className="secondary-button order-top" onClick={() => setModal("order")}><ShoppingBag size={15}/>Add order</button>
-            <button className="primary-button" onClick={() => openSession("snooker")}><Plus size={15}/>New session</button>
+            <button className="secondary-button order-top" onClick={() => setModal("order")}><ShoppingBag size={15}/>Canteen</button>
+            <button className="primary-button" onClick={() => openSession("snooker")}><Plus size={15}/>Book now</button>
           </div>
         </header>
 
@@ -282,28 +335,43 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: reducedMotion ? 0 : 0.34, ease: [0.22, 0.75, 0.24, 1] }}
             >
-              <PageHeader view={view} sessionCount={sessions.length} onSession={() => openSession("snooker")} onPlayer={() => setModal("player")} onCheckout={() => setModal("checkout")} onExport={exportReport}/>
-              {view === "operations" && <OperationsView sessions={sessions} tables={tables} summary={tableSummary} featuredSession={featuredSession} onStart={openSession} onFinish={finishSession} onOrder={() => setModal("order")} onCheckout={() => setModal("checkout")}/>} 
-              {view === "sessions" && <SessionsView sessions={sessions} onFinish={finishSession}/>} 
-              {view === "players" && <PlayersView players={players} search={search} onSearch={setSearch}/>} 
+              <PageHeader view={view} sessionCount={sessions.length} onSession={() => openSession("snooker")} onCheckout={() => setModal("checkout")} onExport={exportReport}/>
+              {view === "dashboard" && <DashboardView sessions={sessions} bills={bills} tableCount={tableCount}/>} 
+              {view === "tables" && <TablesView tables={tables.slice(0, tableCount)} sessions={sessions} bills={bills} onStart={openSession} onContinue={openContinue}/>} 
+              {view === "egames" && <EgamesView sessions={sessions} bills={bills} onStart={openSession} onContinue={openContinueSession}/>} 
+              {view === "canteen" && <CanteenView onOrder={(itemId) => { setOrderItem(itemId); setModal("order"); }}/>} 
               {view === "billing" && <BillingView bills={bills} onCheckout={(id) => { setCheckoutBill(id); setModal("checkout"); }}/>} 
               {view === "reports" && <ReportsView/>}
-              {view === "admin" && <AdminView notify={notify}/>} 
+              {view === "admin" && <AdminView notify={notify} tableCount={tableCount} gamePrices={gamePrices} onTableCountChange={(count) => { setTableCount(count); setTables((current) => Array.from({ length: count }, (_, index) => current[index] ?? { id: String(index + 1).padStart(2, "0"), status: "available" })); }} onPricesChange={setGamePrices}/>} 
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
 
-      <ActionModal open={modal === "session"} title="Start a new session" onClose={() => setModal(null)} footer={<><button className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" onClick={startSession}>Start session</button></>}>
-        <div className="field field--wide"><label>Session type</label><div className="segmented"><button className={sessionMode === "snooker" ? "active" : ""} onClick={() => setSessionMode("snooker")}>Snooker</button><button className={sessionMode === "egame" ? "active" : ""} onClick={() => setSessionMode("egame")}>E-game</button></div></div>
-        <div className="field field--wide"><label htmlFor="session-player">Player</label><select id="session-player" value={sessionPlayer} onChange={(event) => setSessionPlayer(event.target.value)}>{players.map((player) => <option key={player.id}>{player.name}</option>)}</select></div>
-        {sessionMode === "snooker" ? <><div className="field"><label>Game type</label><select><option>Singles — Rs 500</option><option>Doubles — Rs 800</option></select></div><div className="field"><label htmlFor="table-select">Available table</label><select id="table-select" value={selectedTable} onChange={(event) => setSelectedTable(event.target.value)}>{tables.filter((table) => table.status === "available").map((table) => <option key={table.id} value={table.id}>Table {table.id}</option>)}</select></div></> : <><div className="field"><label htmlFor="game-select">Game</label><select id="game-select" value={selectedGame} onChange={(event) => setSelectedGame(event.target.value)}><option>FIFA</option><option>Tekken</option><option>Call of Duty</option><option>GTA V</option></select></div><div className="field"><label>Station</label><select><option>Console 01</option><option>Console 03</option><option>PC 02</option></select></div></>}
+      <ActionModal open={modal === "start"} title="Start Game" onClose={() => setModal(null)} footer={<><button className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" onClick={startSession}>Start Game</button></>}>
+        <div className="field field--wide"><label>What would you like to book?</label><div className="segmented"><button className={sessionMode === "snooker" ? "active" : ""} onClick={() => setSessionMode("snooker")}>Pool table</button><button className={sessionMode === "egame" ? "active" : ""} onClick={() => setSessionMode("egame")}>E-game</button></div></div>
+        <div className="field field--wide"><label htmlFor="booking-name">Name (optional)</label><input id="booking-name" value={bookingName} onChange={(event) => setBookingName(event.target.value)} placeholder="Guest" /></div>
+        {sessionMode === "snooker" ? <><div className="field"><label htmlFor="pool-game">Choose a game</label><select id="pool-game" value={poolGame} onChange={(event) => setPoolGame(event.target.value)}>{gamePrices.map((game) => <option key={game.id}>{game.name}</option>)}</select></div><div className="field"><label htmlFor="table-select">Choose a table</label><select id="table-select" value={selectedTable} onChange={(event) => setSelectedTable(event.target.value)}>{tables.filter((table) => table.status === "available").map((table) => <option key={table.id} value={table.id}>Table {table.id}</option>)}</select></div></> : <><div className="field"><label htmlFor="game-select">Choose a game</label><select id="game-select" value={selectedGame} onChange={(event) => setSelectedGame(event.target.value)}><option>FIFA</option><option>Tekken</option><option>Call of Duty</option><option>GTA V</option></select></div><div className="field"><label htmlFor="resource-select">Choose a PC or console</label><select id="resource-select" value={selectedResource} onChange={(event) => setSelectedResource(event.target.value)}><option>PC 01</option><option>PC 02</option><option>Console 01</option><option>Console 02</option></select></div></>}
         <div className="modal-note field--wide"><span>Billing rule</span><strong>{sessionMode === "snooker" ? "Fixed game rate" : "30-minute units · rounded up"}</strong></div>
       </ActionModal>
 
+      <ActionModal open={modal === "continue"} title={`Continue ${selectedTableForOrder.startsWith("Table") || selectedTableForOrder.startsWith("Console") ? selectedTableForOrder : `Table ${selectedTableForOrder}`}`} onClose={() => setModal(null)} footer={<><button className="secondary-button" onClick={() => settleTable("later")}>Pay Later</button><button className="primary-button" onClick={() => settleTable("now")}>Pay Now</button></>}>
+        <div className="continue-summary field--wide"><span>Current prize</span><strong>{money((tableBill(selectedTableForOrder)?.total ?? 0) + (tableSession(selectedTableForOrder)?.amount ?? 0))}</strong></div>
+        <div className="field field--wide"><label>Add canteen products</label><CanteenProducts selected={orderItem} onSelect={(itemId) => { setOrderItem(itemId); setOrderBill(tableBill(selectedTableForOrder)?.id ?? ""); }}/></div>
+        <div className="field"><label htmlFor="continue-qty">Quantity</label><input id="continue-qty" type="number" min="1" max="20" value={orderQty} onChange={(event) => setOrderQty(Math.max(1, Number(event.target.value)))} /></div>
+        <button className="secondary-button continue-add" onClick={addOrder}><ShoppingBag size={16}/>Add selected item</button>
+      </ActionModal>
+
+      <ActionModal open={modal === "pay-later"} title="Pay Later details" onClose={() => setModal("continue")} footer={<><button className="secondary-button" onClick={() => setModal("continue")}>Back</button><button className="primary-button" onClick={savePayLater}>Save Pay Later</button></>}>
+        <p className="modal-instruction field--wide">Save the customer details so the bill can be collected later.</p>
+        <div className="field field--wide"><label htmlFor="later-name">Customer name</label><input id="later-name" value={payLaterName} onChange={(event) => setPayLaterName(event.target.value)} placeholder="Enter name" /></div>
+        <div className="field field--wide"><label htmlFor="later-phone">Phone number</label><input id="later-phone" value={payLaterPhone} onChange={(event) => setPayLaterPhone(event.target.value)} placeholder="Enter phone number" /></div>
+        <div className="field field--wide"><label htmlFor="later-address">Address (optional)</label><input id="later-address" value={payLaterAddress} onChange={(event) => setPayLaterAddress(event.target.value)} placeholder="Enter address" /></div>
+      </ActionModal>
+
       <ActionModal open={modal === "order"} title="Add a canteen order" onClose={() => setModal(null)} footer={<><button className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" onClick={addOrder}>Add to bill</button></>}>
-        <div className="field field--wide"><label htmlFor="order-player">Player / open bill</label><select id="order-player" value={orderPlayer} onChange={(event) => setOrderPlayer(event.target.value)}>{openBills.map((bill) => <option key={bill.id} value={bill.player}>{bill.player} — #{bill.id}</option>)}</select></div>
-        <div className="field"><label htmlFor="order-item">Menu item</label><select id="order-item" value={orderItem} onChange={(event) => setOrderItem(event.target.value)}>{menuItems.map((item) => <option key={item.id} value={item.id}>{item.name} — {money(item.price)}</option>)}</select></div>
+        <div className="field field--wide"><label htmlFor="order-bill">Add to which bill?</label><select id="order-bill" value={orderBill} onChange={(event) => setOrderBill(event.target.value)}>{openBills.map((bill) => <option key={bill.id} value={bill.id}>{bill.player} — Table / game bill #{bill.id}</option>)}</select></div>
+        <div className="field field--wide"><label>Choose a product</label><CanteenProducts selected={orderItem} onSelect={setOrderItem}/></div>
         <div className="field"><label htmlFor="order-qty">Quantity</label><input id="order-qty" type="number" min="1" max="20" value={orderQty} onChange={(event) => setOrderQty(Math.max(1, Number(event.target.value)))} /></div>
         <div className="modal-note field--wide"><span>Order total</span><strong>{money(selectedMenuItem.price * orderQty)}</strong></div>
       </ActionModal>
@@ -313,11 +381,6 @@ export function ClubApp({ skipIntro = false }: { skipIntro?: boolean }) {
         <div className="receipt-preview field--wide"><div><span>Snooker · Singles</span><strong>Rs 500</strong></div><div><span>E-game · FIFA</span><strong>Rs 1,000</strong></div><div><span>Canteen</span><strong>Rs 650</strong></div></div>
         <div className="modal-note field--wide"><span>Grand total</span><strong>{selectedBill ? money(selectedBill.total) : "—"}</strong></div>
         <div className="field field--wide"><label>Payment method</label><div className="segmented"><button className="active">Cash</button><button>Card / wallet</button></div></div>
-      </ActionModal>
-
-      <ActionModal open={modal === "player"} title="Create a player" onClose={() => setModal(null)} footer={<><button className="secondary-button" onClick={() => setModal(null)}>Cancel</button><button className="primary-button" onClick={addPlayer}>Create player</button></>}>
-        <div className="field field--wide"><label htmlFor="player-name">Player name</label><input id="player-name" value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Enter full name" /></div>
-        <div className="field field--wide"><label htmlFor="player-phone">Phone number</label><input id="player-phone" value={newPlayerPhone} onChange={(event) => setNewPlayerPhone(event.target.value)} placeholder="Optional" /></div>
       </ActionModal>
 
       <div className="toast-stack" aria-live="polite">
@@ -333,52 +396,54 @@ function AmbientMotion() {
   return <div className="ambient-layer" aria-hidden="true"><motion.i className="ambient-orb ambient-orb--one" animate={reducedMotion ? undefined : { x: [0, 80, 0], y: [0, 35, 0], opacity: [.12, .2, .12] }} transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}/><motion.i className="ambient-orb ambient-orb--two" animate={reducedMotion ? undefined : { x: [0, -60, 0], y: [0, -30, 0], opacity: [.06, .13, .06] }} transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}/></div>;
 }
 
-function PageHeader({ view, sessionCount, onSession, onPlayer, onCheckout, onExport }: { view: ViewId; sessionCount: number; onSession: () => void; onPlayer: () => void; onCheckout: () => void; onExport: () => void }) {
+function PageHeader({ view, sessionCount, onSession, onCheckout, onExport }: { view: ViewId; sessionCount: number; onSession: () => void; onCheckout: () => void; onExport: () => void }) {
   const copy = pageCopy[view];
-  return <div className="page-header"><div><p>{copy.eyebrow}</p><h1>{copy.title}</h1><span>{view === "operations" ? `The floor is moving. ${sessionCount} sessions are live.` : copy.description}</span></div><div className="page-header-actions">{view === "operations" && <div className="shift-meta"><span>Current shift</span><strong>04:00 PM — 12:00 AM</strong></div>}{view === "sessions" && <button className="primary-button" onClick={onSession}><Plus size={15}/>Create session</button>}{view === "players" && <button className="primary-button" onClick={onPlayer}><Plus size={15}/>New player</button>}{view === "billing" && <button className="primary-button" onClick={onCheckout}><CircleDollarSign size={15}/>Settle a bill</button>}{view === "reports" && <button className="secondary-button" onClick={onExport}>Export report</button>}{view === "admin" && <span className="status-pill status-pill--green">Admin access</span>}</div></div>;
+  return <div className="page-header"><div><p>{copy.eyebrow}</p><h1>{copy.title}</h1><span>{view === "dashboard" ? `${sessionCount} games are running now. ${copy.description}` : copy.description}</span></div><div className="page-header-actions">{(view === "dashboard" || view === "tables" || view === "egames") && <button className="primary-button" onClick={onSession}><Plus size={15}/>Book now</button>}{view === "billing" && <button className="primary-button" onClick={onCheckout}><CircleDollarSign size={15}/>Collect payment</button>}{view === "reports" && <button className="secondary-button" onClick={onExport}>Export report</button>}{view === "admin" && <span className="status-pill status-pill--green">Admin access</span>}</div></div>;
 }
 
-function OperationsView({ sessions, tables, summary, featuredSession, onStart, onFinish, onOrder, onCheckout }: { sessions: Session[]; tables: ClubTable[]; summary: ReturnType<typeof getTableSummary>; featuredSession?: Session; onStart: (kind: SessionKind, tableId?: string) => void; onFinish: (id: string) => void; onOrder: () => void; onCheckout: () => void }) {
-  return <>
-    <div className="operations-grid">
-      <section className="floor-card">
-        <div className="floor-card-head"><div><strong>{featuredSession?.resource ?? "Table 03"}</strong><span>{featuredSession ? `${featuredSession.activity} · ${featuredSession.player}` : "Ready for play"}</span></div><span className="live-pill"><i/>LIVE TABLE</span></div>
-        <div className="pendant pendant--left"/><div className="pendant pendant--right"/>
-        <MotionTable/>
-        <div className="floor-card-foot"><div className="featured-id"><b>{featuredSession?.resource.replace("Table ", "") ?? "03"}</b><span>{featuredSession?.player ?? "Available"}<small>{featuredSession?.activity ?? "Ready"}</small></span></div><div className="featured-timer"><span>Session time</span><strong>{featuredSession ? formatDuration(featuredSession.elapsedSeconds) : "00:00:00"}</strong></div></div>
-      </section>
-      <section className="live-panel">
-        <header><div><strong>Active sessions</strong><span>{sessions.length} running now</span></div><span className="live-pill"><i/>LIVE</span></header>
-        <div className="session-list"><AnimatePresence initial={false}>{sessions.map((session, index) => <motion.article layout key={session.id} className="session-row" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><span className="session-index">{String(index + 1).padStart(2, "0")}</span><div><strong>{session.player}</strong><span>{session.kind === "snooker" ? "Snooker" : "E-game"} · {session.activity} · {session.resource}</span></div><aside><strong>{formatDuration(session.elapsedSeconds)}</strong><button onClick={() => onFinish(session.id)}>Finish</button></aside></motion.article>)}</AnimatePresence></div>
-        <footer><button className="secondary-button" onClick={onOrder}>Add order</button><button className="primary-button" onClick={() => onStart("snooker")}>Start session</button></footer>
-      </section>
-    </div>
-    <div className="quick-grid">
-      <QuickAction index="01 / S" title="Start snooker" description="Assign an open table" onClick={() => onStart("snooker")}/>
-      <QuickAction index="02 / E" title="Start e-game" description="Track time and rate" onClick={() => onStart("egame")}/>
-      <QuickAction index="03 / C" title="Canteen order" description="Add items to a bill" onClick={onOrder}/>
-      <QuickAction index="04 / B" title="Settle bill" description="Review and collect" onClick={onCheckout}/>
-    </div>
-    <section className="tables-section"><header><h2>Table availability</h2><span>{summary.available} available · {summary.occupied} occupied · {summary.maintenance} maintenance</span></header><div className="table-grid">{tables.map((table, index) => <motion.button key={table.id} className={`table-tile table-tile--${table.status}`} onClick={() => table.status === "available" && onStart("snooker", table.id)} whileHover={{ y: -4 }} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .05 }}><div><b>{table.id}</b><span><i/>{table.status}</span></div><p>{table.status === "occupied" ? `${table.player} · ${table.elapsed}` : table.status === "available" ? "Ready to assign" : "Temporarily offline"}</p></motion.button>)}</div></section>
-  </>;
+function DashboardView({ sessions, bills, tableCount }: { sessions: Session[]; bills: Bill[]; tableCount: number }) {
+  const runningTables = sessions.filter((session) => session.kind === "snooker").length;
+  const runningGames = sessions.filter((session) => session.kind === "egame").length;
+  const unpaid = bills.filter((bill) => bill.status === "unpaid");
+  return <div className="dashboard-summary"><section className="welcome-panel"><p>Today</p><h2>Welcome to the club desk</h2><span>Use Tables or E-games to start and manage play.</span></section><div className="summary-grid"><SummaryCard icon={LayoutGrid} label="Tables" value={String(tableCount)} detail={`${runningTables} games running`}/><SummaryCard icon={Gamepad2} label="E-games" value={String(runningGames)} detail="games running now"/><SummaryCard icon={ReceiptText} label="Pay Later" value={String(unpaid.length)} detail="customers to collect"/><SummaryCard icon={ShoppingBag} label="Canteen" value="+" detail="add food or drinks"/></div><section className="dashboard-help"><h2>What do you want to do?</h2><div><span>1</span><strong>Open Tables</strong><small>Choose a table and start a pool game.</small></div><div><span>2</span><strong>Open E-games</strong><small>Choose a PC or console and start playing.</small></div><div><span>3</span><strong>Open Pay Later</strong><small>Collect money from previous games.</small></div></section></div>;
 }
 
-function QuickAction({ index, title, description, onClick }: { index: string; title: string; description: string; onClick: () => void }) {
-  return <motion.button className="quick-action" onClick={onClick} whileHover="hover"><div><span>{index}</span><motion.i variants={{ hover: { x: 3, y: -3 } }}>↗</motion.i></div><strong>{title}</strong><small>{description}</small></motion.button>;
+function TablesView({ tables, sessions, bills, onStart, onContinue }: { tables: ClubTable[]; sessions: Session[]; bills: Bill[]; onStart: (kind: SessionKind, resource?: string) => void; onContinue: (resource: string) => void }) {
+  return <ResourceBoard title="All tables" description="Start a pool game or continue a running table." resources={tables.map((table) => ({ resource: `Table ${table.id}`, state: table.status, activeSession: sessions.find((session) => session.resource === `Table ${table.id}`), bill: bills.find((bill) => bill.tableId === table.id && bill.status === "unpaid") }))} onStart={(resource) => onStart("snooker", resource.replace("Table ", ""))} onContinue={onContinue}/>;
 }
 
-function SessionsView({ sessions, onFinish }: { sessions: Session[]; onFinish: (id: string) => void }) {
-  return <><div className="stat-grid"><Stat label="Running now" value={String(sessions.length).padStart(2, "0")} note="live"/><Stat label="Snooker" value={String(sessions.filter((s) => s.kind === "snooker").length).padStart(2, "0")} note="tables"/><Stat label="E-games" value={String(sessions.filter((s) => s.kind === "egame").length).padStart(2, "0")} note="stations"/><Stat label="Est. active value" value={money(sessions.reduce((sum, s) => sum + s.amount, 0))} note="current"/></div><DataPanel title="Session register"><table><thead><tr><th>Player</th><th>Activity</th><th>Resource</th><th>Started</th><th>Duration</th><th>Status</th><th/></tr></thead><tbody>{sessions.map((session) => <tr key={session.id}><td><strong>{session.player}</strong></td><td>{session.kind === "snooker" ? "Snooker" : "E-game"} · {session.activity}</td><td>{session.resource}</td><td>{session.startedAt}</td><td className="mono">{formatDuration(session.elapsedSeconds)}</td><td><span className="status-pill status-pill--green">Active</span></td><td><button className="text-button" onClick={() => onFinish(session.id)}>Finish</button></td></tr>)}</tbody></table></DataPanel></>;
+function EgamesView({ sessions, bills, onStart, onContinue }: { sessions: Session[]; bills: Bill[]; onStart: (kind: SessionKind, resource?: string) => void; onContinue: (resource: string) => void }) {
+  const resources = ["PC 01", "PC 02", "Console 01", "Console 02"].map((resource) => ({ resource, state: "available" as const, activeSession: sessions.find((session) => session.resource === resource), bill: bills.find((bill) => bill.tableId === resource && bill.status === "unpaid") }));
+  return <ResourceBoard title="PCs and consoles" description="Start an e-game or continue a running PC or console." resources={resources} onStart={(resource) => onStart("egame", resource)} onContinue={onContinue}/>;
 }
 
-function PlayersView({ players, search, onSearch }: { players: Player[]; search: string; onSearch: (value: string) => void }) {
-  const visible = players.filter((player) => `${player.name} ${player.phone}`.toLowerCase().includes(search.toLowerCase()));
-  return <DataPanel title="Player directory" action={<label className="search-field"><Search size={14}/><input aria-label="Search players" placeholder="Search by name or phone" value={search} onChange={(event) => onSearch(event.target.value)}/></label>}><table><thead><tr><th>Player</th><th>Phone</th><th>Visits</th><th>Last activity</th><th>Open bill</th><th>Status</th></tr></thead><tbody>{visible.map((player) => <tr key={player.id}><td><strong>{player.name}</strong></td><td>{player.phone}</td><td>{player.visits}</td><td>{player.lastActivity}</td><td>{player.openBill ? money(player.openBill) : "—"}</td><td><span className={`status-pill ${player.active ? "status-pill--green" : ""}`}>{player.active ? "In club" : "Customer"}</span></td></tr>)}</tbody></table></DataPanel>;
+function ResourceBoard({ title, description, resources, onStart, onContinue }: { title: string; description: string; resources: Array<{ resource: string; state: ClubTable["status"]; activeSession?: Session; bill?: Bill }>; onStart: (resource: string) => void; onContinue: (resource: string) => void }) {
+  return <section className="table-board"><header className="table-board-header"><div><p>Choose a resource</p><h2>{title}</h2><span>{description}</span></div><span className="table-count">{resources.length} available</span></header><div className="table-card-grid">{resources.map((item, index) => <ResourceCard key={item.resource} item={item} index={index} onStart={onStart} onContinue={onContinue}/>)}</div></section>;
+}
+
+function ResourceCard({ item, index, onStart, onContinue }: { item: { resource: string; state: ClubTable["status"]; activeSession?: Session; bill?: Bill }; index: number; onStart: (resource: string) => void; onContinue: (resource: string) => void }) {
+  const active = Boolean(item.activeSession);
+  const total = (item.bill?.total ?? 0) + (item.activeSession?.amount ?? 0);
+  return <motion.article className={`table-card ${active ? "table-card--active" : ""}`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .04 }}><div className="table-card-top"><div><span className="table-number">{item.resource}</span><span className={`table-state table-state--${active ? "active" : item.state}`}>{active ? "Game running" : item.state === "maintenance" ? "Unavailable" : "Free"}</span></div><span className="table-light"/></div>{active && item.activeSession ? <><div className="table-game"><strong>{item.activeSession.activity}</strong><span>{item.activeSession.player}</span></div><div className="table-timer">{formatDuration(item.activeSession.elapsedSeconds)}</div><div className="table-price"><span>Prize</span><strong>{money(total)}</strong></div><div className="table-card-actions"><button className="secondary-button" onClick={() => onContinue(item.resource)}>Continue</button><button className="text-button" onClick={() => onContinue(item.resource)}>Add canteen</button></div></> : <><div className="empty-table"><span>{item.state === "maintenance" ? "Not available" : "Ready for the next game"}</span></div><div className="table-price"><span>Prize</span><strong>{money(0)}</strong></div><button className="primary-button table-start-button" disabled={item.state === "maintenance"} onClick={() => onStart(item.resource)}>Start Game</button></>}</motion.article>;
+}
+
+function SummaryCard({ icon: Icon, label, value, detail }: { icon: typeof LayoutGrid; label: string; value: string; detail: string }) {
+  return <article className="summary-card"><Icon size={24}/><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+}
+
+const canteenIcons: Record<string, typeof CupSoda> = { drink: CupSoda, water: Droplets, chips: Cookie, burger: Sandwich };
+
+function CanteenProducts({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+  return <div className="canteen-products">{menuItems.map((item) => { const Icon = canteenIcons[item.id] ?? Cookie; return <button type="button" className={`product-button ${selected === item.id ? "product-button--selected" : ""}`} key={item.id} onClick={() => onSelect(item.id)}><Icon size={25}/><strong>{item.name}</strong><span>{money(item.price)}</span></button>; })}</div>;
+}
+
+function CanteenView({ onOrder }: { onOrder: (itemId: string) => void }) {
+  return <div className="canteen-page"><div className="canteen-intro"><ShoppingBag size={34}/><div><h2>Choose something to add</h2><p>Pick a product, then choose the table or game bill.</p></div></div><CanteenProducts selected="" onSelect={onOrder}/></div>;
 }
 
 function BillingView({ bills, onCheckout }: { bills: Bill[]; onCheckout: (id: string) => void }) {
   const visible = bills.filter((bill) => bill.status === "unpaid");
-  return <div className="billing-grid"><DataPanel title="Open bills" action={<span className="status-pill status-pill--red">{visible.length} unpaid</span>}><table><thead><tr><th>Bill</th><th>Player</th><th>Items</th><th>Updated</th><th>Total</th><th/></tr></thead><tbody>{visible.map((bill) => <tr key={bill.id}><td>#{bill.id}</td><td><strong>{bill.player}</strong></td><td>{bill.itemCount} activities</td><td>{bill.updated}</td><td>{money(bill.total)}</td><td><button className="text-button" onClick={() => onCheckout(bill.id)}>Collect</button></td></tr>)}</tbody></table></DataPanel><ReceiptCard bill={visible[0]} onCheckout={onCheckout}/></div>;
+  return <div className="billing-grid"><DataPanel title="Pay Later bills" action={<span className="status-pill status-pill--red">{visible.length} unpaid</span>}><div className="pay-later-list">{visible.map((bill) => <article key={bill.id}><div><strong>{bill.player}</strong><span>{bill.phone || "No phone saved"} · {bill.tableId || "Front desk"}</span>{bill.address && <small>{bill.address}</small>}</div><strong>{money(bill.total)}</strong><button className="primary-button" onClick={() => onCheckout(bill.id)}>Pay now</button></article>)}</div></DataPanel><ReceiptCard bill={visible[0]} onCheckout={onCheckout}/></div>;
 }
 
 function ReceiptCard({ bill, onCheckout }: { bill?: Bill; onCheckout: (id: string) => void }) {
@@ -391,9 +456,9 @@ function ReportsView() {
   return <><div className="stat-grid"><Stat label="Revenue" value="Rs 45.8k" note="+12.4%"/><Stat label="Expenses" value="Rs 12.5k" note="today" muted/><Stat label="Profit" value="Rs 33.3k" note="+8.1%"/><Stat label="Games played" value="74" note="+9 today"/></div><div className="report-grid"><section className="chart-panel"><header><strong>Revenue by hour</strong><span className="status-pill">Today</span></header><div className="chart-bars">{bars.map((height, index) => <motion.i key={index} initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: index * .055, duration: .65, ease: [0.22, .75, .24, 1] }} style={{ height: `${height}%` }}/>)}</div><div className="chart-labels"><span>2 PM</span><span>4 PM</span><span>6 PM</span><span>8 PM</span><span>10 PM</span></div></section><section className="revenue-card"><header><h3>Revenue mix</h3><span>Today</span></header><div><span>Snooker</span><strong>Rs 24,300</strong></div><div><span>E-games</span><strong>Rs 13,900</strong></div><div><span>Canteen</span><strong>Rs 7,600</strong></div><footer><span>Total</span><strong>Rs 45,800</strong></footer></section></div></>;
 }
 
-function AdminView({ notify }: { notify: (title: string, detail: string) => void }) {
-  const cards = [{ icon: LayoutGrid, title: "Tables", copy: "Add, rename or set a table to maintenance.", action: "Manage 6 tables" },{ icon: CircleDollarSign, title: "Snooker pricing", copy: "Singles Rs 500 · Doubles Rs 800", action: "Edit rates" },{ icon: Gamepad2, title: "E-games", copy: "5 games · time-based billing enabled", action: "Manage games" },{ icon: ShoppingBag, title: "Canteen menu", copy: "18 items · 16 currently available", action: "Edit menu" },{ icon: ReceiptText, title: "Expenses", copy: "Rs 12,500 recorded today", action: "Add expense" },{ icon: Users, title: "Staff & access", copy: "4 active accounts · 2 desk users", action: "Manage staff" }];
-  return <div className="admin-grid">{cards.map((card, index) => <motion.article key={card.title} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .055 }}><card.icon size={18}/><h3>{card.title}</h3><p>{card.copy}</p><button className="secondary-button" onClick={() => notify(card.title, "Demo control opened with local dummy data.")}>{card.action}<ChevronRight size={14}/></button></motion.article>)}</div>;
+function AdminView({ notify, tableCount, gamePrices, onTableCountChange, onPricesChange }: { notify: (title: string, detail: string) => void; tableCount: number; gamePrices: GamePrice[]; onTableCountChange: (count: number) => void; onPricesChange: (prices: GamePrice[]) => void }) {
+  const cards = [{ icon: Gamepad2, title: "E-games", copy: "Manage games and stations", action: "Manage games" },{ icon: ShoppingBag, title: "Canteen menu", copy: "Manage food and drinks", action: "Edit menu" },{ icon: ReceiptText, title: "Expenses", copy: "Record money spent by the club", action: "Add expense" },{ icon: Users, title: "Staff", copy: "Manage who can use the desk", action: "Manage staff" }];
+  return <><section className="admin-settings"><div><LayoutGrid size={25}/><h2>Number of tables</h2><p>The dashboard will show this many tables.</p></div><select aria-label="Number of tables" value={tableCount} onChange={(event) => onTableCountChange(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} tables</option>)}</select></section><section className="admin-settings"><div><CircleDollarSign size={25}/><h2>Pool game prices</h2><p>These prices appear when staff starts a game.</p></div><div className="admin-price-list">{gamePrices.map((game) => <label key={game.id}>{game.name}<input type="number" aria-label={`${game.name} price`} value={game.price} onChange={(event) => onPricesChange(gamePrices.map((item) => item.id === game.id ? { ...item, price: Number(event.target.value) } : item))}/></label>)}</div></section><div className="admin-grid">{cards.map((card, index) => <motion.article key={card.title} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .055 }}><card.icon size={18}/><h3>{card.title}</h3><p>{card.copy}</p><button className="secondary-button" onClick={() => notify(card.title, "Settings opened with local demo data.")}>{card.action}<ChevronRight size={14}/></button></motion.article>)}</div></>;
 }
 
 function Stat({ label, value, note, muted = false }: { label: string; value: string; note: string; muted?: boolean }) {
